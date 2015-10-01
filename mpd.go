@@ -52,6 +52,7 @@ func (self *Conn) WriteLine(line string) (err error) {
 	if written != len(line)+1 {
 		log.Fatalln("Didn't write it all!", written, "<", len(line)+1)
 	}
+	log.Println("=>", line)
 	return err
 }
 
@@ -79,6 +80,16 @@ type Status struct {
 	Audio          string
 }
 
+type Stats struct {
+	Uptime     int
+	PlayTime   int
+	Artists    int
+	Albums     int
+	Songs      int
+	DBPlayTime int
+	DBUpdate   int
+}
+
 type MpdResponse interface{}
 
 func (self *Conn) Status() (status Status, err error) {
@@ -87,10 +98,16 @@ func (self *Conn) Status() (status Status, err error) {
 	return status, err
 }
 
-func (self *Conn) ReadResponse(status *Status) (err error) {
+func (self *Conn) Stats() (stats Stats, err error) {
+	self.WriteLine("stats")
+	err = self.ReadResponse(&stats)
+	return stats, err
+}
+
+func (self *Conn) ReadResponse(data MpdResponse) (err error) {
 	line, err := self.ReadLine()
 	for ; self.continueReading(line, err); line, err = self.ReadLine() {
-		self.parseResponse(status, line)
+		self.parseResponse(data, line)
 	}
 	return err
 }
@@ -102,6 +119,7 @@ func (self *Conn) continueReading(line string, err error) bool {
 }
 
 func (self *Conn) parseResponse(status MpdResponse, line string) (err error) {
+	// log.Println("Parsing a response", strings.Trim(line, "\n\t "), status)
 	pair := strings.SplitN(line, ":", 2)
 	key, val := pair[0], strings.ToLower(strings.TrimSpace(pair[1]))
 	fieldName := mapMPDNameToFieldName(key)
@@ -159,7 +177,18 @@ func mapMPDNameToFieldName(mpdName string) string {
 		return "NextSong"
 	case "mixrampdb":
 		return "MixRampDB"
+	case "playtime":
+		return "PlayTime"
+	case "db_playtime":
+		return "DBPlayTime"
+	case "db_update":
+		return "DBUpdate"
 	default:
 		return strings.Title(mpdName)
 	}
+}
+
+func (self *Conn) Ping() (err error) {
+	self.WriteLine("ping")
+	return self.ReadResponse(nil)
 }
