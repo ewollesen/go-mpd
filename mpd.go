@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -72,7 +73,13 @@ type Status struct {
 	SongId         uint
 	NextSong       uint
 	NextSongId     uint
+	Time           uint
+	Elapsed        string
+	Bitrate        uint
+	Audio          string
 }
+
+type MpdResponse interface{}
 
 func (self *Conn) Status() (status Status, err error) {
 	self.WriteLine("status")
@@ -81,84 +88,9 @@ func (self *Conn) Status() (status Status, err error) {
 }
 
 func (self *Conn) ReadResponse(status *Status) (err error) {
-	for line, err := self.ReadLine(); self.continueReading(line, err); line, err = self.ReadLine() {
-		z := strings.SplitN(line, ":", 2)
-		key, val := z[0], strings.TrimSpace(z[1])
-		switch key {
-		case "volume":
-			status.Volume, err = strconv.Atoi(val)
-			if err != nil {
-				log.Fatalln("Error parsing volume", err)
-				return err
-			}
-		case "repeat":
-			status.Repeat, err = strconv.ParseBool(val)
-			if err != nil {
-				return err
-			}
-		case "random":
-			status.Random, err = strconv.ParseBool(val)
-			if err != nil {
-				return err
-			}
-		case "single":
-			status.Single, err = strconv.ParseBool(val)
-			if err != nil {
-				return err
-			}
-		case "consume":
-			status.Consume, err = strconv.ParseBool(val)
-			if err != nil {
-				return err
-			}
-		case "playlist":
-			x, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.Playlist = uint(x)
-		case "playlistlength":
-			x, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.PlaylistLength = uint(x)
-		case "mixrampdb":
-			x, err := strconv.ParseFloat(val, 10)
-			if err != nil {
-				return err
-			}
-			status.MixRampDB = float32(x)
-		case "state":
-			// TODO: validation
-			status.State = val
-		case "song":
-			i, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.Song = uint(i)
-		case "songid":
-			i, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.SongId = uint(i)
-		case "nextsong":
-			i, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.NextSong = uint(i)
-		case "nextsongid":
-			i, err := strconv.ParseUint(val, 10, 32)
-			if err != nil {
-				return err
-			}
-			status.NextSongId = uint(i)
-		default:
-			log.Println("Unexpected key:", key)
-		}
+	line, err := self.ReadLine()
+	for ; self.continueReading(line, err); line, err = self.ReadLine() {
+		self.parseResponse(status, line)
 	}
 	return err
 }
@@ -167,4 +99,67 @@ func (self *Conn) continueReading(line string, err error) bool {
 	return err == nil &&
 		!strings.HasPrefix(line, "ACK") &&
 		!strings.HasPrefix(line, "OK")
+}
+
+func (self *Conn) parseResponse(status MpdResponse, line string) (err error) {
+	pair := strings.SplitN(line, ":", 2)
+	key, val := pair[0], strings.ToLower(strings.TrimSpace(pair[1]))
+	fieldName := mapMPDNameToFieldName(key)
+	statusElem := reflect.ValueOf(status).Elem()
+	field := statusElem.FieldByName(fieldName)
+
+	if field == reflect.Zero(statusElem.Type()) {
+		log.Println("Field not found:", field)
+	} else {
+		switch fmt.Sprintf("%s", field.Type()) {
+		case "string":
+			field.SetString(val)
+		case "int":
+			v, err := strconv.ParseInt(val, 10, 32)
+			if err != nil {
+				return err
+			}
+			field.SetInt(v)
+		case "uint":
+			v, err := strconv.ParseUint(val, 10, 32)
+			if err != nil {
+				return err
+			}
+			field.SetUint(v)
+		case "bool":
+			v, err := strconv.ParseBool(val)
+			if err != nil {
+				return err
+			}
+			field.SetBool(v)
+		case "float32":
+			v, err := strconv.ParseFloat(val, 10)
+			if err != nil {
+				return err
+			}
+			field.SetFloat(v)
+		default:
+			panic(fmt.Sprint("Unable to parse unexpected type",
+				field.Type()))
+		}
+
+	}
+	return nil
+}
+
+func mapMPDNameToFieldName(mpdName string) string {
+	switch mpdName {
+	case "playlistlength":
+		return "PlaylistLength"
+	case "songid":
+		return "SongId"
+	case "nextsongid":
+		return "NextSongId"
+	case "nextsong":
+		return "NextSong"
+	case "mixrampdb":
+		return "MixRampDB"
+	default:
+		return strings.Title(mpdName)
+	}
 }
