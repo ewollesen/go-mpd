@@ -148,7 +148,7 @@ func (self *Conn) parseResponse(resp MpdResponse, line string) (err error) {
 	respElem := reflect.ValueOf(resp).Elem()
 	field := respElem.FieldByName(fieldName)
 
-	if field == reflect.Zero(respElem.Type()) {
+	if !field.IsValid() {
 		log.Println("Field not found:", field)
 	} else {
 		switch fmt.Sprintf("%s", field.Type()) {
@@ -222,6 +222,12 @@ func (self *Conn) Ping() (err error) {
 func main() {
 	mpd := NewMPDConn("mildred", 6600, "")
 	mpd.Connect()
+
+	err := mpd.Ping()
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
 
 	stats, err := mpd.Stats()
 	if err != nil {
