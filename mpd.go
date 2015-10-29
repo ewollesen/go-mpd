@@ -1,4 +1,4 @@
-package mpd
+package main
 
 import (
 	"bufio"
@@ -90,6 +90,23 @@ type Stats struct {
 	DBUpdate   int
 }
 
+type SongInfo struct {
+	File          string
+	LastModified  string
+	Time          uint
+	Title         string
+	Artist        string
+	Date          uint
+	Album         string
+	Track         uint
+	AlbumArtist   string
+	Disc          uint
+	Pos           uint
+	Id            uint
+	MildredSongId string
+	Name          string
+}
+
 type MpdResponse interface{}
 
 func (self *Conn) Status() (status Status, err error) {
@@ -102,6 +119,12 @@ func (self *Conn) Stats() (stats Stats, err error) {
 	self.WriteLine("stats")
 	err = self.ReadResponse(&stats)
 	return stats, err
+}
+
+func (self *Conn) CurrentSong() (song SongInfo, err error) {
+	self.WriteLine("currentsong")
+	err = self.ReadResponse(&song)
+	return song, err
 }
 
 func (self *Conn) ReadResponse(data MpdResponse) (err error) {
@@ -118,15 +141,14 @@ func (self *Conn) continueReading(line string, err error) bool {
 		!strings.HasPrefix(line, "OK")
 }
 
-func (self *Conn) parseResponse(status MpdResponse, line string) (err error) {
-	// log.Println("Parsing a response", strings.Trim(line, "\n\t "), status)
+func (self *Conn) parseResponse(resp MpdResponse, line string) (err error) {
 	pair := strings.SplitN(line, ":", 2)
-	key, val := pair[0], strings.ToLower(strings.TrimSpace(pair[1]))
+	key, val := pair[0], strings.TrimSpace(pair[1])
 	fieldName := mapMPDNameToFieldName(key)
-	statusElem := reflect.ValueOf(status).Elem()
-	field := statusElem.FieldByName(fieldName)
+	respElem := reflect.ValueOf(resp).Elem()
+	field := respElem.FieldByName(fieldName)
 
-	if field == reflect.Zero(statusElem.Type()) {
+	if field == reflect.Zero(respElem.Type()) {
 		log.Println("Field not found:", field)
 	} else {
 		switch fmt.Sprintf("%s", field.Type()) {
@@ -183,6 +205,10 @@ func mapMPDNameToFieldName(mpdName string) string {
 		return "DBPlayTime"
 	case "db_update":
 		return "DBUpdate"
+	case "MILDRED_SONGID":
+		return "MildredSongId"
+	case "Last-Modified":
+		return "LastModified"
 	default:
 		return strings.Title(mpdName)
 	}
@@ -191,4 +217,30 @@ func mapMPDNameToFieldName(mpdName string) string {
 func (self *Conn) Ping() (err error) {
 	self.WriteLine("ping")
 	return self.ReadResponse(nil)
+}
+
+func main() {
+	mpd := NewMPDConn("mildred", 6600, "")
+	mpd.Connect()
+
+	stats, err := mpd.Stats()
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
+	fmt.Printf("Stats: %v\n", stats)
+
+	status, err := mpd.Status()
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
+	fmt.Printf("Status: %v\n", status)
+
+	song, err := mpd.CurrentSong()
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
+	fmt.Printf("Current Song: %v\n", song)
 }
