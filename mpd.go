@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -17,6 +18,8 @@ type Conn struct {
 	sock     net.Conn
 	reader   *bufio.Reader
 }
+
+type MpdResponse interface{}
 
 func NewMPDConn(host string, port int, password string) *Conn {
 	return &Conn{Host: host, Port: port, Password: password}
@@ -74,7 +77,7 @@ type Status struct {
 	SongId         uint
 	NextSong       uint
 	NextSongId     uint
-	Time           uint
+	Time           [2]uint
 	Elapsed        string
 	Bitrate        uint
 	Audio          string
@@ -107,32 +110,60 @@ type SongInfo struct {
 	Name          string
 }
 
-type MpdResponse interface{}
-
 func (self *Conn) Status() (status Status, err error) {
+	status = Status{}
 	self.WriteLine("status")
-	err = self.ReadResponse(&status)
-	return status, err
+	lines, err := self.ReadResponse()
+	if err != nil {
+		return status, err
+	}
+	for _, line := range lines {
+		err = self.parseResponseLine(&status, line)
+		if err != nil {
+			return status, err
+		}
+	}
+	return status, nil
 }
 
 func (self *Conn) Stats() (stats Stats, err error) {
+	stats = Stats{}
 	self.WriteLine("stats")
-	err = self.ReadResponse(&stats)
-	return stats, err
+	lines, err := self.ReadResponse()
+	if err != nil {
+		return stats, err
+	}
+	for _, line := range lines {
+		err = self.parseResponseLine(&stats, line)
+		if err != nil {
+			return stats, err
+		}
+	}
+	return stats, nil
 }
 
 func (self *Conn) CurrentSong() (song SongInfo, err error) {
+	song = SongInfo{}
 	self.WriteLine("currentsong")
-	err = self.ReadResponse(&song)
-	return song, err
+	lines, err := self.ReadResponse()
+	if err != nil {
+		return song, err
+	}
+	for _, line := range lines {
+		err = self.parseResponseLine(&song, line)
+		if err != nil {
+			return song, err
+		}
+	}
+	return song, nil
 }
 
-func (self *Conn) ReadResponse(data MpdResponse) (err error) {
+func (self *Conn) ReadResponse() (lines []string, err error) {
 	line, err := self.ReadLine()
 	for ; self.continueReading(line, err); line, err = self.ReadLine() {
-		self.parseResponse(data, line)
+		lines = append(lines, line)
 	}
-	return err
+	return lines, err
 }
 
 func (self *Conn) continueReading(line string, err error) bool {
@@ -141,7 +172,16 @@ func (self *Conn) continueReading(line string, err error) bool {
 		!strings.HasPrefix(line, "OK")
 }
 
-func (self *Conn) parseResponse(resp MpdResponse, line string) (err error) {
+func (self *Conn) parseResponseLine(resp MpdResponse, line string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(runtime.Error); ok {
+				panic(r)
+			}
+			err = r.(error)
+		}
+	}()
+
 	pair := strings.SplitN(line, ":", 2)
 	key, val := pair[0], strings.TrimSpace(pair[1])
 	fieldName := mapMPDNameToFieldName(key)
@@ -154,6 +194,15 @@ func (self *Conn) parseResponse(resp MpdResponse, line string) (err error) {
 		switch fmt.Sprintf("%s", field.Type()) {
 		case "string":
 			field.SetString(val)
+		case "[2]uint":
+			pair := strings.SplitN(val, ":", 2)
+			for idx, uintStr := range pair {
+				uintVal, err := strconv.ParseUint(uintStr, 10, 32)
+				if err != nil {
+					return err
+				}
+				field.Index(idx).SetUint(uintVal)
+			}
 		case "int":
 			v, err := strconv.ParseInt(val, 10, 32)
 			if err != nil {
@@ -216,7 +265,13 @@ func mapMPDNameToFieldName(mpdName string) string {
 
 func (self *Conn) Ping() (err error) {
 	self.WriteLine("ping")
-	return self.ReadResponse(nil)
+	_, err = self.ReadResponse()
+	if err != nil {
+		return err
+	} else {
+		return nil
+	}
+
 }
 
 func main() {
