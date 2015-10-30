@@ -256,6 +256,29 @@ func (self *Conn) Ping() (err error) {
 	return err
 }
 
+func (self *Conn) PlaylistInfo() (playlist []SongInfo, err error) {
+	playlist = []SongInfo{}
+	var song SongInfo
+	self.WriteLine("playlistinfo")
+	lines, err := self.ReadResponse()
+	if err != nil {
+		return
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "file:") {
+			if song.File != "" {
+				playlist = append(playlist, song)
+			}
+			song = SongInfo{}
+		}
+		err = self.parseResponseLine(&song, line)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 func main() {
 	mpd := NewMPDConn("mildred", 6600, "")
 	mpd.Connect()
@@ -286,4 +309,12 @@ func main() {
 		return
 	}
 	fmt.Printf("Current Song: %v\n", song)
+
+	playlist, err := mpd.PlaylistInfo()
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
+	fmt.Printf("Playlist Info: %v\n", playlist)
+
 }
