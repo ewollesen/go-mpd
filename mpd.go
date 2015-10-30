@@ -110,52 +110,39 @@ type SongInfo struct {
 	Name          string
 }
 
+func (self *Conn) ReadStandardResponse(data MpdResponse) (err error) {
+	lines, err := self.ReadResponse()
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		err = self.parseResponseLine(data, line)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 func (self *Conn) Status() (status Status, err error) {
 	status = Status{}
 	self.WriteLine("status")
-	lines, err := self.ReadResponse()
-	if err != nil {
-		return status, err
-	}
-	for _, line := range lines {
-		err = self.parseResponseLine(&status, line)
-		if err != nil {
-			return status, err
-		}
-	}
-	return status, nil
+	err = self.ReadStandardResponse(&status)
+	return status, err
 }
 
 func (self *Conn) Stats() (stats Stats, err error) {
 	stats = Stats{}
 	self.WriteLine("stats")
-	lines, err := self.ReadResponse()
-	if err != nil {
-		return stats, err
-	}
-	for _, line := range lines {
-		err = self.parseResponseLine(&stats, line)
-		if err != nil {
-			return stats, err
-		}
-	}
-	return stats, nil
+	err = self.ReadStandardResponse(&stats)
+	return stats, err
 }
 
 func (self *Conn) CurrentSong() (song SongInfo, err error) {
 	song = SongInfo{}
 	self.WriteLine("currentsong")
-	lines, err := self.ReadResponse()
-	if err != nil {
-		return song, err
-	}
-	for _, line := range lines {
-		err = self.parseResponseLine(&song, line)
-		if err != nil {
-			return song, err
-		}
-	}
-	return song, nil
+	err = self.ReadStandardResponse(&song)
+	return song, err
 }
 
 func (self *Conn) ReadResponse() (lines []string, err error) {
@@ -189,7 +176,7 @@ func (self *Conn) parseResponseLine(resp MpdResponse, line string) (err error) {
 	field := respElem.FieldByName(fieldName)
 
 	if !field.IsValid() {
-		log.Println("Field not found:", field)
+		log.Println("Field not found:", fieldName)
 	} else {
 		switch fmt.Sprintf("%s", field.Type()) {
 		case "string":
@@ -266,12 +253,7 @@ func mapMPDNameToFieldName(mpdName string) string {
 func (self *Conn) Ping() (err error) {
 	self.WriteLine("ping")
 	_, err = self.ReadResponse()
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
-
+	return err
 }
 
 func main() {
